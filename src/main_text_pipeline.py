@@ -1,58 +1,49 @@
 import os
 import json
 from tqdm import tqdm
-import cv2
 
 from preprocess.image_cleaning import preprocess_image
 from ocr.ocr_engine import run_ocr
-from layout.layout_grouping import group_by_layout
 from extraction.field_extraction import extract_all_fields
 
 IMAGE_DIR = "data/images"
-OUTPUT_FILE = "outputs/text_extraction_results.json"
+OUTPUT_FILE = "outputs/output.json"
 
 def main():
-    all_results = {}
+    results = []
 
-    for img_name in tqdm(os.listdir(IMAGE_DIR)):
-        if not img_name.lower().endswith(".png"):
-            continue
+    images = sorted([i for i in os.listdir(IMAGE_DIR) if i.endswith(".png")])[:3]
 
-        img_path = os.path.join(IMAGE_DIR, img_name)
+
+
+    for idx, img in enumerate(tqdm(images), start=1):
+        doc_id = f"invoice_{idx:03d}"
+        path = os.path.join(IMAGE_DIR, img)
 
         try:
-            # Step 1: Preprocess image
-            cleaned_img = preprocess_image(img_path)
+            img_clean = preprocess_image(path)
+            ocr = run_ocr(img_clean)
+            height = img_clean.shape[0]
 
-            # Step 2: OCR
-            ocr_result = run_ocr(cleaned_img)
+            fields = extract_all_fields(ocr, height)
 
-            # Step 3: Layout grouping
-            image_height = cleaned_img.shape[0]
-            layout = group_by_layout(ocr_result, image_height)
-
-            # Step 4: Field extraction
-            fields = extract_all_fields(layout)
-
-            # Store result
-            all_results[img_name] = {
+            results.append({
+                "doc_id": doc_id,
                 "fields": fields
-            }
+            })
 
         except Exception as e:
-            print(f"Error processing {img_name}: {e}")
-            all_results[img_name] = {
+            results.append({
+                "doc_id": doc_id,
                 "fields": None,
                 "error": str(e)
-            }
+            })
 
     os.makedirs("outputs", exist_ok=True)
-
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(all_results, f, ensure_ascii=False, indent=2)
+        json.dump(results, f, indent=2, ensure_ascii=False)
 
-    print(f"\n✅ Text extraction completed. Results saved to {OUTPUT_FILE}")
+    print("✅ Done")
 
 if __name__ == "__main__":
     main()
-
