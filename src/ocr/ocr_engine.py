@@ -1,61 +1,30 @@
+import os
+
+# 🔴 DISABLE PIR + MKLDNN (CRITICAL)
+os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 from paddleocr import PaddleOCR
 
 ocr_model = PaddleOCR(
     use_angle_cls=True,
     lang="en"
 )
-def get_y_center(bbox):
-    """
-    Safely compute Y-center from PaddleOCR bbox.
-    Works for all bbox formats.
-    """
-    try:
-        # Case 1: [[x,y], [x,y], ...]
-        if isinstance(bbox[0], (list, tuple)):
-            ys = [pt[1] for pt in bbox if len(pt) >= 2]
-            return sum(ys) / len(ys)
 
-        # Case 2: [x1, y1, x2, y2]
-        elif len(bbox) == 4:
-            return (bbox[1] + bbox[3]) / 2
+def run_ocr(image_path):
+    results = ocr_model.ocr(image_path)
+    extracted = []
 
-    except Exception:
-        pass
+    if not results or not results[0]:
+        return extracted
 
-    return None
+    for line in results[0]:
+        bbox, (text, conf) = line
+        extracted.append({
+            "text": text.strip(),
+            "bbox": bbox,
+            "confidence": round(conf, 3)
+        })
 
-def run_ocr(image):
-    """
-    Returns list of:
-    {
-        "text": str,
-        "confidence": float,
-        "bbox": [[x,y], [x,y], [x,y], [x,y]]
-    }
-    """
-    result = ocr_model.ocr(image)
-    ocr_data = []
-
-    if not result:
-        return ocr_data
-
-    for line in result:
-        if not isinstance(line, list):
-            continue
-
-        for item in line:
-            try:
-                box = item[0]
-                text = item[1][0]
-                conf = item[1][1]
-
-                if isinstance(text, str) and text.strip():
-                    ocr_data.append({
-                        "text": text.strip(),
-                        "confidence": float(conf),  # 🔥 FIXED
-                        "bbox": box
-                    })
-            except Exception:
-                continue
-
-    return ocr_data
+    return extracted

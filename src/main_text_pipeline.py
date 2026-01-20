@@ -1,49 +1,47 @@
 import os
 import json
+import cv2
 from tqdm import tqdm
-
-from preprocess.image_cleaning import preprocess_image
 from ocr.ocr_engine import run_ocr
+from layout.layout_grouping import group_by_layout
 from extraction.field_extraction import extract_all_fields
 
-IMAGE_DIR = "data/images"
-OUTPUT_FILE = "outputs/output.json"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+IMAGE_DIR = os.path.join(BASE_DIR, "data", "images")
+OUTPUT_FILE = os.path.join(BASE_DIR, "outputs", "text_extraction_results.json")
 
-def main():
+def main(limit=500):
     results = []
+    images = sorted(os.listdir(IMAGE_DIR))[:limit]
 
-    images = sorted([i for i in os.listdir(IMAGE_DIR) if i.endswith(".png")])[:3]
-
-
-
-    for idx, img in enumerate(tqdm(images), start=1):
-        doc_id = f"invoice_{idx:03d}"
-        path = os.path.join(IMAGE_DIR, img)
+    for idx, img in enumerate(tqdm(images)):
+        img_path = os.path.join(IMAGE_DIR, img)
+        doc_id = f"invoice_{idx+1:03d}"
 
         try:
-            img_clean = preprocess_image(path)
-            ocr = run_ocr(img_clean)
-            height = img_clean.shape[0]
+            image = cv2.imread(img_path)
+            h, _, _ = image.shape
 
-            fields = extract_all_fields(ocr, height)
+            ocr_data = run_ocr(img_path)
+            layout = group_by_layout(ocr_data, h)
+            fields, confidence = extract_all_fields(layout)
 
             results.append({
                 "doc_id": doc_id,
-                "fields": fields
+                "fields": fields,
+                "confidence": confidence
             })
 
         except Exception as e:
             results.append({
                 "doc_id": doc_id,
-                "fields": None,
                 "error": str(e)
             })
 
-    os.makedirs("outputs", exist_ok=True)
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
+    with open(OUTPUT_FILE, "w") as f:
+        json.dump(results, f, indent=2)
 
-    print("✅ Done")
+    print("✅ Extraction complete")
 
 if __name__ == "__main__":
-    main()
+    main(limit=3)

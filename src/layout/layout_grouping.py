@@ -1,16 +1,21 @@
-from extraction.field_extraction import get_y_center
+def get_y_center(bbox):
+    try:
+        ys = [p[1] for p in bbox]
+        return sum(ys) / len(ys)
+    except:
+        return None
 
 def group_by_layout(ocr_outputs, image_height):
     header, body, footer = [], [], []
 
     for item in ocr_outputs:
-        y_center = get_y_center(item["bbox"])
-        if y_center is None:
+        y = get_y_center(item["bbox"])
+        if y is None:
             continue
 
-        if y_center < 0.33 * image_height:
+        if y < 0.33 * image_height:
             header.append(item)
-        elif y_center > 0.70 * image_height:
+        elif y > 0.70 * image_height:
             footer.append(item)
         else:
             body.append(item)

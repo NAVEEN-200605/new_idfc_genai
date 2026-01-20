@@ -1,148 +1,79 @@
 import re
-from rapidfuzz import fuzz
+from rapidfuzz import process
 
-BRANDS = [
-    "mahindra", "swaraj", "john deere",
-    "sonalika", "kubota", "new holland"
+MODEL_MASTER = [
+    "Mahindra 575 DI",
+    "Mahindra 265 DI",
+    "Swaraj 735 FE",
+    "John Deere 5310",
+    "New Holland 3630"
 ]
 
 DEALER_KEYWORDS = [
-    "tractors", "tractor", "motors", "agencies",
-    "dealer", "auto", "industries", "corporation"
+    "tractor", "traders", "motors", "agro",
+    "farm", "pvt", "ltd", "agency"
 ]
 
-COST_KEYWORDS = ["total", "net", "grand", "amount", "price", "cost"]
-
-IGNORE_MODEL_WORDS = [
-    "dealer", "agency", "motors", "auto",
-    "gst", "quotation", "invoice"
-]
-def get_y_center(bbox):
-    try:
-        if isinstance(bbox[0], (list, tuple)):
-            ys = [pt[1] for pt in bbox if len(pt) >= 2]
-            return sum(ys) / len(ys)
-        elif len(bbox) == 4:
-            return (bbox[1] + bbox[3]) / 2
-    except Exception:
-        pass
-    return None
-
-def normalize(t):
-    return re.sub(r'[^a-z0-9 ]', '', t.lower()).strip()
-
-
-# ---------------- DEALER ----------------
-def extract_dealer_name(ocr, image_height):
-    scored = []
-
-    for o in ocr:
-        txt = o["text"]
-        low = normalize(txt)
-        conf = o.get("confidence", 0.8)
-
-        y_center = get_y_center(o["bbox"])
-        if y_center is None:
-            continue
-
-        top_bias = 1.0 if y_center < 0.35 * image_height else 0.6
-
-        keyword_score = max(
-            [fuzz.partial_ratio(k, low) for k in DEALER_KEYWORDS],
-            default=0
-        )
-
-        if len(low) > 8 and keyword_score > 70:
-            score = keyword_score * conf * top_bias
-            scored.append((score, txt))
-
-    if scored:
-        return max(scored, key=lambda x: x[0])[1]
-
-    top_texts = [
-        o["text"] for o in ocr
-        if sum(p[1] for p in o["bbox"]) / 4 < 0.3 * image_height
-    ]
-    return max(top_texts, key=len) if top_texts else None
-
-
-# ---------------- BRAND ----------------
-def extract_brand(ocr):
-    best, best_score = None, 0
-
-    for o in ocr:
-        txt = normalize(o["text"])
-        for b in BRANDS:
-            score = fuzz.partial_ratio(b, txt)
-            if score > best_score and score > 85:
-                best, best_score = b.title(), score
-
-    return best
-
-
-# ---------------- MODEL ----------------
-def extract_model(ocr, brand):
+def extract_dealer_name(header):
     candidates = []
+    for item in header:
+        text = item["text"].lower()
+        if any(k in text for k in DEALER_KEYWORDS) and len(text) > 8:
+            candidates.append(item)
 
-    for o in ocr:
-        raw = o["text"]
-        txt = normalize(raw)
+    if not candidates:
+        return None, 0.0
 
-        if any(w in txt for w in IGNORE_MODEL_WORDS):
-            continue
+    best = max(candidates, key=lambda x: x["confidence"])
+    return best["text"], best["confidence"]
 
-        if brand and brand.lower() in txt:
-            candidates.append(raw)
+def extract_model_name(body):
+    texts = " ".join([i["text"] for i in body])
+    match = process.extractOne(texts, MODEL_MASTER)
 
-        if re.search(r'\b\d{3,4}\b', txt):
-            candidates.append(raw)
+    if match and match[1] > 85:
+        return match[0], match[1] / 100
 
-    return max(candidates, key=len) if candidates else None
+    return None, 0.0
 
-
-# ---------------- HP ----------------
-def extract_hp(ocr):
-    for o in ocr:
-        txt = normalize(o["text"]).replace("hf", "hp").replace("o", "0")
-
-        m = re.search(r'(\d{2})\s*hp', txt)
+def extract_hp(body):
+    for item in body:
+        m = re.search(r"(\d{2})\s*hp", item["text"].lower())
         if m:
-            hp = int(m.group(1))
-            if 20 <= hp <= 90:
-                return hp
-    return None
+            return int(m.group(1)), item["confidence"]
+    return None, 0.0
 
+def extract_asset_cost(footer):
+    numbers = []
+    for item in footer:
+        text = item["text"].replace(",", "")
+        found = re.findall(r"\d{4,}", text)
+        for f in found:
+            numbers.append((int(f), item["confidence"]))
 
-# ---------------- AMOUNT ----------------
-def extract_amount(ocr):
-    candidates = []
+    if not numbers:
+        return None, 0.0
 
-    for o in ocr:
-        txt = normalize(o["text"])
-        conf = o.get("confidence", 0.8)
+    value, conf = max(numbers, key=lambda x: x[0])
+    return value, conf
 
-        if any(x in txt for x in ["gst", "cgst", "sgst", "advance", "emi"]):
-            continue
+def extract_all_fields(layout):
+    dealer, d_conf = extract_dealer_name(layout["header"])
+    model, m_conf = extract_model_name(layout["body"])
+    hp, hp_conf = extract_hp(layout["body"])
+    cost, c_conf = extract_asset_cost(layout["footer"])
 
-        nums = re.findall(r'\d{5,}', txt.replace(",", ""))
-        if not nums:
-            continue
-
-        value = max(int(n) for n in nums)
-        bonus = 1.3 if any(k in txt for k in COST_KEYWORDS) else 1.0
-
-        candidates.append((value * bonus * conf, value))
-
-    return max(candidates, key=lambda x: x[0])[1] if candidates else None
-
-
-# ---------------- MAIN ----------------
-def extract_all_fields(ocr, image_height):
-    brand = extract_brand(ocr)
+    final_confidence = round(
+        0.30 * d_conf +
+        0.25 * m_conf +
+        0.20 * hp_conf +
+        0.25 * c_conf,
+        3
+    )
 
     return {
-        "dealer_name": extract_dealer_name(ocr, image_height),
-        "model_name": extract_model(ocr, brand),
-        "horse_power": extract_hp(ocr),
-        "asset_cost": extract_amount(ocr)
-    }
+        "dealer_name": dealer,
+        "model_name": model,
+        "horse_power": hp,
+        "asset_cost": cost
+    }, final_confidence
