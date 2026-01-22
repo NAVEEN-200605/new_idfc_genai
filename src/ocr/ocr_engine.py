@@ -1,7 +1,7 @@
 import easyocr
 
 reader = easyocr.Reader(
-    ['en', 'hi', 'gu'],
+    ['en', 'hi'],
     gpu=True
 )
 def run_ocr(image_path):
