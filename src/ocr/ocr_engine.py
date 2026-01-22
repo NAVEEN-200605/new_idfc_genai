@@ -1,30 +1,30 @@
-import os
+import easyocr
 
-# 🔴 DISABLE PIR + MKLDNN (CRITICAL)
-os.environ["FLAGS_enable_pir_api"] = "0"
-os.environ["FLAGS_use_mkldnn"] = "0"
-os.environ["OMP_NUM_THREADS"] = "1"
-
-from paddleocr import PaddleOCR
-
-ocr_model = PaddleOCR(
-    use_angle_cls=True,
-    lang="en"
+reader = easyocr.Reader(
+    ['en'],
+    gpu=True,
+    recog_network='english_g2'   # better for invoices
 )
 
 def run_ocr(image_path):
-    results = ocr_model.ocr(image_path)
+    results = reader.readtext(
+        image_path,
+        detail=1,
+        paragraph=False,
+        contrast_ths=0.1,
+        adjust_contrast=0.5,
+        text_threshold=0.6
+    )
+
     extracted = []
+    for bbox, text, conf in results:
+        if conf < 0.4 or len(text.strip()) < 2:
+            continue
 
-    if not results or not results[0]:
-        return extracted
-
-    for line in results[0]:
-        bbox, (text, conf) = line
         extracted.append({
             "text": text.strip(),
             "bbox": bbox,
-            "confidence": round(conf, 3)
+            "confidence": round(float(conf), 3)
         })
 
     return extracted
