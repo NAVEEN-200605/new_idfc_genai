@@ -1,11 +1,9 @@
 import easyocr
 
 reader = easyocr.Reader(
-    ['en'],
-    gpu=True,
-    recog_network='english_g2'   # better for invoices
+    ['en', 'hi', 'gu'],
+    gpu=True
 )
-
 def run_ocr(image_path):
     results = reader.readtext(
         image_path,
