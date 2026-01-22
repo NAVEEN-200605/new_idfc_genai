@@ -26,7 +26,12 @@ def main(limit=3):
 
         try:
             image = cv2.imread(img_path)
+
+            if image is None:
+                raise ValueError(f"Image not loaded: {img_path}")
+
             h, _, _ = image.shape
+
 
             # 🔹 OCR
             ocr_data = run_ocr(img_path)
